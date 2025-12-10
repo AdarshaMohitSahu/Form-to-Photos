@@ -7,7 +7,7 @@
  *  - In Google Cloud Console enable Drive API for the project if prompted.
  *
  * Setup:
- *  - Set FOLDER_ID to the Drive folder where form uploads land.
+ *  - Set the photo upload folder ID via setFolderId('...') or DEFAULT_FOLDER_ID below.
  *  - Deploy as Web App (Execute as: Me; Who has access: Anyone, even anonymous) if you want public display.
  *  - Create two triggers:
  *      1) Installable Form Submit trigger -> onFormSubmit
@@ -19,7 +19,8 @@
  */
 
 /** CONFIGURATION **/
-const FOLDER_ID = '1H8PvuSmujx6TSFh3ELzMb77LS0i_cxJ6wCXFNiOpvxbGUvMUjou18xN0J_YZDhIKIf2GnvrU'; // <-- replace with your folder ID
+const DEFAULT_FOLDER_ID = 'REPLACE_WITH_UPLOADS_FOLDER_ID'; // fallback if script property not set
+const FOLDER_ID_PROPERTY_KEY = 'PHOTOS_FOLDER_ID';
 const INDEX_FILENAME = 'index.json';
 const MAX_INDEX_ITEMS = 2000; // keep a cap to avoid huge index; tune as needed
 
@@ -70,7 +71,12 @@ function reconcileFolder() {
  * extracts metadata (thumbnailLink, webContentLink, width, height), and appends to index.
  */
 function processNewFiles() {
-  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const folder = getFolder();
+  if (!folder) {
+    console.error('processNewFiles: folder not configured or not found. Call setFolderId("<folderId>") first.');
+    return;
+  }
+
   const index = getIndex(); // array of metadata objects
   const knownIds = new Set(index.map(item => item.id));
   const files = folder.getFiles();
@@ -158,7 +164,9 @@ function processNewFiles() {
  * If missing, returns [].
  */
 function getIndex() {
-  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const folder = getFolder();
+  if (!folder) return [];
+
   const files = folder.getFilesByName(INDEX_FILENAME);
   if (files.hasNext()) {
     const file = files.next();
@@ -180,7 +188,9 @@ function getIndex() {
  * saveIndex: writes index array to index.json in the folder (overwrites existing).
  */
 function saveIndex(indexArray) {
-  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const folder = getFolder();
+  if (!folder) return;
+
   const files = folder.getFilesByName(INDEX_FILENAME);
   const content = JSON.stringify(indexArray);
   if (files.hasNext()) {
@@ -199,10 +209,47 @@ function getPublicDownloadUrl(fileId) {
 }
 
 /**
+ * getFolderId: returns configured folder ID (script property overrides default).
+ */
+function getFolderId() {
+  const stored = PropertiesService.getScriptProperties().getProperty(FOLDER_ID_PROPERTY_KEY);
+  return stored || DEFAULT_FOLDER_ID;
+}
+
+/**
+ * setFolderId: helper to set the uploads folder ID via script properties.
+ * Run manually once after creating/choosing the form response folder.
+ */
+function setFolderId(folderId) {
+  PropertiesService.getScriptProperties().setProperty(FOLDER_ID_PROPERTY_KEY, folderId);
+  Logger.log('Folder ID saved: ' + folderId);
+  return folderId;
+}
+
+/**
+ * Resolve the Drive folder using the configured ID.
+ */
+function getFolder() {
+  const folderId = getFolderId();
+  if (!folderId || folderId === 'REPLACE_WITH_UPLOADS_FOLDER_ID') {
+    console.error('Folder ID is not set. Call setFolderId("<folderId>") or update DEFAULT_FOLDER_ID.');
+    return null;
+  }
+  try {
+    return DriveApp.getFolderById(folderId);
+  } catch (err) {
+    console.error('Unable to open folder ' + folderId + ': ' + err);
+    return null;
+  }
+}
+
+/**
  * Utility: clearIndex (for debugging)
  */
 function clearIndex() {
-  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const folder = getFolder();
+  if (!folder) return;
+
   const files = folder.getFilesByName(INDEX_FILENAME);
   while (files.hasNext()) {
     files.next().setTrashed(true);
