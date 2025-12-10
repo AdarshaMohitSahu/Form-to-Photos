@@ -102,19 +102,32 @@ Behavior:
     let lastRender = performance.now();
 
     // Fetch index JSON
-    function fetchIndex() {
-      return new Promise((resolve, reject) => {
-        google.script.run
-          .withSuccessHandler(data => {
-            console.log("Fetched index via google.script.run:", data);
-            resolve(data);
-          })
-          .withFailureHandler(err => {
-            console.error("Error fetching index:", err);
-            reject(err);
-          })
-          .getIndexData();  // calls the server-side function
-      });
+    async function fetchIndex() {
+      // Prefer Apps Script rpc when available; otherwise fall back to HTTP fetch
+      try {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return await new Promise((resolve, reject) => {
+            google.script.run
+              .withSuccessHandler(data => {
+                console.log("Fetched index via google.script.run:", data);
+                resolve(data);
+              })
+              .withFailureHandler(err => {
+                console.error("Error fetching index:", err);
+                reject(err);
+              })
+              .getIndexData();  // calls the server-side function
+          });
+        }
+
+        const response = await fetch(INDEX_URL, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+      } catch (err) {
+        console.error("Error fetching index:", err);
+        meta.textContent = 'Unable to load photos';
+        return null;
+      }
     }
 
     // Build DOM items for a slice of index
