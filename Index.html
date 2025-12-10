@@ -101,6 +101,30 @@ Behavior:
     let autoScroll = { y: 0, running: true };
     let lastRender = performance.now();
 
+    function updateColumnCount(itemCount) {
+      const baseColumns = parseInt(getComputedStyle(masonry).columnCount, 10) || 1;
+      const desiredColumns = Math.max(1, Math.min(baseColumns, itemCount || 1));
+      masonry.style.columnCount = desiredColumns;
+    }
+
+    function loadItemImage(itemEl) {
+      const img = itemEl.querySelector('img');
+      if (img && img.dataset.src && !img.src) {
+        img.src = img.dataset.src;
+        delete img.dataset.src;
+      }
+    }
+
+    function loadVisibleImages() {
+      const viewportBottom = masonry.scrollTop + masonry.clientHeight + 400; // mirror observer rootMargin
+      const items = masonry.querySelectorAll('.item');
+      items.forEach((item) => {
+        if (item.offsetTop <= viewportBottom) {
+          loadItemImage(item);
+        }
+      });
+    }
+
     // Fetch index JSON
     async function fetchIndex() {
       // Prefer Apps Script rpc when available; otherwise fall back to HTTP fetch
@@ -164,7 +188,9 @@ Behavior:
         const el = createItemElement(index[i]);
         masonry.appendChild(el);
       }
+      updateColumnCount(index.length);
       setupObserver();
+      loadVisibleImages();
       meta.textContent = `Photos: ${index.length}`;
     }
 
@@ -178,6 +204,7 @@ Behavior:
       }
       // Trim DOM if too many
       trimDom();
+      updateColumnCount(index.length);
       meta.textContent = `Photos: ${index.length}`;
     }
 
@@ -193,15 +220,18 @@ Behavior:
     // IntersectionObserver to lazy-load images
     function setupObserver() {
       if (observer) observer.disconnect();
+      
+      if (!('IntersectionObserver' in window)) {
+        // Fallback: eagerly load everything so first photo always shows
+        const items = masonry.querySelectorAll('.item');
+        items.forEach(loadItemImage);
+        return;
+      }
+
       observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
-            const img = entry.target.querySelector('img');
-            if (img && img.dataset.src && !img.src) {
-              img.src = img.dataset.src;
-              // release dataset to save memory
-              delete img.dataset.src;
-            }
+            loadItemImage(entry.target);
             observer.unobserve(entry.target);
           }
         });
@@ -211,9 +241,10 @@ Behavior:
         threshold: 0.01
       });
 
-      // observe current items
+      // observe current items and ensure the first ones render immediately
       const items = masonry.querySelectorAll('.item');
       items.forEach(it => observer.observe(it));
+      loadVisibleImages();
     }
 
     // Auto-scroll loop using requestAnimationFrame
@@ -274,6 +305,10 @@ Behavior:
     // Visibility / focus handling to pause scrolling when not visible
     document.addEventListener('visibilitychange', () => {
       autoScroll.running = !document.hidden;
+    });
+
+    window.addEventListener('resize', () => {
+      updateColumnCount(index.length);
     });
 
     // Start everything
